@@ -49,6 +49,29 @@ Now with pip we can install python-flint
 pip install python-flint
 ```
 
+Now we need fpylll and fplll for the lll reduction
+First we need to create the configure script, so either get it from:
+or 
+```
+brew install autoconf
+brew install automake
+brew install libtool
+```
+Then clone the repo containing fplll (fastest lll implementation)
+and there it is, another round of compile-action!
+```
+git clone https://github.com/fplll/fplll
+cd fplll
+./autogen.sh
+./configure
+./make
+./make install
+```
+Now pip comes in handy agaim:
+```
+pip install fpylll
+```
+
 And finally clone this repo and run some tests:
 ```
 git clone https://github.com/lvenuto/roca-speed
