@@ -2,7 +2,6 @@
 Fast, multiprocess implementation in Python of the RoCa vulnerability of RSA keys
 
 ## Installation instructions
-### Linux
 ### Mac os X
 
 The easiest way to install the requirements is through [Brew](https://brew.sh/)
@@ -34,3 +33,28 @@ cd flint-2.5.2
 #Takes 10 minutes
 ./make install
 ```
+
+We also need [arb](https://github.com/fredrik-johansson) because it's a requirement for python-flint
+
+```
+wget https://github.com/fredrik-johansson/arb/archive/2.15.1.tar.gz
+cd arb-2.15.1
+./configure
+make
+make install
+```
+
+Now with pip we can install python-flint
+```
+pip install python-flint
+```
+
+And finally clone this repo and run some tests:
+```
+git clone https://github.com/lvenuto/roca-speed
+cd roca-speed
+./test.py
+```
+
+### Linux
+
