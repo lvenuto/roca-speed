@@ -287,7 +287,7 @@ class Roca:
         generator = self.generator
         general_prime = False #Should be true for rsalib keys, check this
         #generator is known: p=k * m + (generator^a mod m)
-        phi_n = euler_phi(m) #Euler totient in FLINT
+        phi_n = fmpz.euler_phi(fmpz(m)) #Euler totient in FLINT
         decomp_phi_n = phi_n.factor() # list with prime factors & multiplicities
         order = self.generator_order(generator, m, phi_n, decomp_phi_n)
         decomp_order = fmpz(order).factor() 
