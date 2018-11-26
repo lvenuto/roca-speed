@@ -91,7 +91,7 @@ And finally clone this repo and run some tests:
 ```
 git clone https://github.com/lvenuto/roca-speed
 cd roca-speed
-./test.py
+python2 test.py
 ```
 
 ### Linux
