@@ -69,7 +69,22 @@ cd fplll
 ```
 Now pip comes in handy agaim:
 ```
+pip install cysignals
 pip install fpylll
+```
+The installation of fpylll fails because:
+```
+  build/src/fpylll/fplll/integer_matrix.cpp:691:10: fatal error: 'fplll/pruner.h' file not found
+  #include "fplll/pruner.h"
+           ^~~~~~~~~~~~~~~~
+  1 error generated.
+  error: command 'clang' failed with exit status 1
+```
+`pruner.h` has been moved, the simplest way is to create a symbolic link:
+
+```
+cd /usr/local/include
+ln -s pruner/pruner.h pruner.h
 ```
 
 And finally clone this repo and run some tests:
