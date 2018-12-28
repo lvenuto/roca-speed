@@ -358,8 +358,8 @@ class PyRoca:
             exit(0)
         next_k0_to_assign = queue.get()["next_k0_to_assign"]
         total_attempts = queue.get()["attempts"]
-        print "Total attempts are: " + str(total_attempts)
-        print "Attempts per second: " + str(int(total_attempts / (end-start))) 
+        logging.info('Total attempts made are: {}'.format(total_attempts)) #not really true, it's more or less right depending on the scheduler...
+        logging.info('Attempts per second: {}'.format(total_attempts / (end-start)))
         #Old stuff but important for the writeup, this doesn't work correctly
         #results = [pool.apply(try_guess, args=(n, m, k0_guess_list[w], k0_guess_times_list[w], mm, tt, XX)) for w in xrange(0,n_process)]
         #results = [p.get() for p in results]   
