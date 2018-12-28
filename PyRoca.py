@@ -3,32 +3,44 @@
 
 import sys
 import math
-from fpylll import *
 import time
+from fpylll import *
 from flint import *
 from multiprocessing import Process
 from multiprocessing import Pool
 from multiprocessing import Queue
 import multiprocessing as mp
+import logging
 #import signal
 
-class Roca:
+class PyRoca:
 
     '''default mm and tt values depending on keylen'''
-    mm_tt = { 512: (5, 6),
+    mm_tt = { 
+              1024: (5, 6),
+              512: (5, 6),
               128: (2, 3), 
               64 : (3, 4) 
     }
 
     '''default M values depending on keylen'''
 
-    m_prime = { 512: 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,
-                128: 0x6bfc675e31a, #43 bits primorial(12)
+    m_prime = { 
+                1024 : 0x2156fdb48f0144b373d10c63b13c5090fabd96696724cbc8aee5e43dc10e6a43b960a3eL,
+                #1024: 0x24683144f41188c2b1d6a217f81f12888e4e6513c43f3f60e72af8bd9728807483425d1eL,
+                512 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,
+                128 : 0x6bfc675e31a, #43 bits primorial(12)
                 64 : 0x7ca2e  #19 bits primorial(7)
     }
 
-    def __init__(self, n, m=None, mm=None, tt=None, generator=None, k0_guess=None, nprocess=None, batch_size=None):
+    def __init__(self, n, m=None, mm=None, tt=None, generator=None, k0_guess=None, nprocess=None, batch_size=None, debug=False):
+        if debug:
+            logging.basicConfig(format='%(levelname)s: PyRoca %(message)s',level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.WARNING)   
+          
         keylen = (int(math.log(n, 256)) + 1)*8
+        logging.debug('keylen is {}'.format(keylen))
         if n is None:
           raise ValueError('n must be specified.')
         else:
@@ -60,16 +72,17 @@ class Roca:
           try:
               self.nprocess = mp.cpu_count() 
           except NotImplementedError:
-              'Cant get cpu_count, using the default of 2 processes.'
-              self.nprocess = 2
+              logging.warning('Cant get cpu_count, using the default of 1 process.')
+              self.nprocess = 1
         else:
-          self.nprocess = nprocess
+            self.nprocess = nprocess
         #batch size can be optimized to increase performance, usually depends on the time taken by coppersmith alg
         #to prevent starvation of the processes
         if batch_size is None: 
-          self.batch_size = 100
+            self.batch_size = 100
         else:
-          self.batch_size = batch_size
+            self.batch_size = batch_size
+       
     
               
     '''Faster implementation of EuclidExt algorithm?
@@ -127,7 +140,6 @@ class Roca:
         dd = expr.degree()
         nn = dd * mm + tt
              
-        start = time.time()
         # compute polynomials
         gg = []
         for ii in range(mm):
@@ -163,20 +175,21 @@ class Roca:
                 for elem2 in elem:
                     if(elem2[0].degree() == 1):
                         roots.append((-elem2[0][0]))               
-        end = time.time()
-        exec_time = end-start #exec time is useful if you are searching for a perfect m, normally not useful
-        return roots, exec_time 
+        return roots 
         
-    def try_guess(self, n, m, k0_guess, k0_guess_times_m_inv, mm, tt, XX):
+    def try_guess(self, n, m, k0_guess, mm, tt, XX):
         
-        k0_g_inv_mod = k0_guess_times_m_inv%n
+        start = time.time()
+        #k0_g_inv_mod = k0_guess_times_m_inv%n
+        k0_g_inv_mod = (k0_guess * self.m_inv) % n
         expr = fmpz_poly([k0_g_inv_mod,1])
-        roots, exec_time = self.coppersmith_howgrave_univariate(expr, n, mm, tt, XX)
+        roots = self.coppersmith_howgrave_univariate(expr, n, mm, tt, XX)
+        end = time.time()
+        exec_time = end-start #time to solve the lattice (including poly creation time)
         for root in roots:
             factor1 = k0_guess + abs(root) * m
             if (n % factor1) == 0: #found our prime p
-                print 'Correct guess is: ' + str(k0_guess)
-                #print 'ABS root is: ' + str(abs(root)) 
+                logging.debug('Correct guess is: {}'.format(k0_guess))
                 factor2 = n // factor1
                 return [int(factor1), int(factor2)]
         return None
@@ -188,7 +201,6 @@ class Roca:
             return 1 # by definition
         if pow(generator, order, m) != 1:
             return None #not an element of the group
-        #for factor,power in decomp_phi_n.items(): for sympy dictionary use .items()
         for factor,power in decomp_phi_n:
             for p in range (1, power + 1):
                 next_order = order // int(factor)
@@ -196,7 +208,6 @@ class Roca:
                     order = next_order           
                 else:
                     break 
-        #print 'order is : ' + str(order)   
         return order
 
     #Pohlig hellman algorithm for an effecient computation of the discrete logarithm
@@ -222,11 +233,7 @@ class Roca:
                     break
             if not found:
                 return None
-        #start = time.time()
-        #result = crt(moduli, remainders, symmetric=False)[0]
         result = self._chinese_remainder(moduli,remainders)
-        #end = time.time()
-        #print "crt time is: " + str(end-start) 
         return result
 
     '''This function is primarily used for the processes spawned by this class
@@ -236,9 +243,8 @@ class Roca:
     TODO: do a checkpoint to resume (E.g. for amazon EC2 spot instance resume)
     and put the max_attempts in the queue, so we know how many have been done
     '''
-    def get_batch(self, lock, queue, n, m, m_inv, generator, mm, tt, XX):
+    def get_batch(self, lock, queue, n, m, generator, mm, tt, XX):
         batch = []
-        #global max_attempts    
         lock.acquire()
         next_k0_to_assign = queue.get()["next_k0_to_assign"]
         attempts = queue.get()["attempts"] 
@@ -249,35 +255,50 @@ class Roca:
             lock.release()
             return None #no more jobs for you
         k0_guess = next_k0_to_assign
-        k0_guess_times = int(k0_guess * m_inv)
-        batch.append((k0_guess, k0_guess_times))
+        #k0_guess_times = int(k0_guess * m_inv)
+        batch.append(k0_guess)
         for i in xrange(0, self.batch_size-1): #we have already assigned one job
             k0_guess = ((k0_guess) * generator) % m 
-            k0_guess_times = int(k0_guess * m_inv)
-            batch.append((k0_guess,k0_guess_times))
+            #k0_guess_times = int(k0_guess * m_inv)
+            #batch.append((k0_guess,k0_guess_times))
+            batch.append(k0_guess)
         attempts = attempts + len(batch)
         next_k0_to_assign = ((k0_guess) * generator) % m
         queue.put({"next_k0_to_assign" : next_k0_to_assign})
         queue.put({"attempts" : attempts})
         lock.release()
-        #print attempts
         return batch
        
-    def __separate_process(self, proc_id, lock, stop_event, queue, q_solution, n, m, m_inv, generator, mm, tt, XX):
-        batch = self.get_batch(lock, queue, n, m, m_inv, generator, mm, tt, XX)
+    def __separate_process(self, proc_id, lock, stop_event, queue, q_solution, n, m, generator, mm, tt, XX):
+        batch = self.get_batch(lock, queue, n, m, generator, mm, tt, XX)
         while batch: #while there is work to do
             for guess in batch:
                 if(stop_event.is_set()):
-                    print "Process n " + str(proc_id) + " has been requested to terminate, exiting now"
+                    lock.acquire()
+                    next_k0_to_assign = queue.get()["next_k0_to_assign"]
+                    total_attempts = queue.get()["attempts"]
+                    queue.put({"next_k0_to_assign" : next_k0_to_assign})
+                    queue.put({"attempts" : total_attempts-len(batch)})#use this if you want to know (more or less) where the correct guess is in the batches
+                    #queue.put({"attempts" : total_attempts-(batch.index(guess)+1)}) if you want more accurate attempts/sec, uncomment this
+                    lock.release()         
+                    logging.debug('Process n {} has been requested to terminate, exiting now'.format(proc_id))
                     exit(0)
-                factors = self.try_guess(n, m, guess[0], guess[1], mm, tt, XX) #guess[0] = k0_guess, guess[1]= k0_guess_times_m_inv
+                factors = self.try_guess(n, m, guess, mm, tt, XX) 
                 if factors is not None: #we found the solution
-                    print "Process n " + str(proc_id) + " found the solution!" 
-                    stop_event.set()
-                    q_solution.put({"solution" : factors})
+                    logging.debug('Process n {} found the solution!'.format(proc_id))
+                    stop_event.set() #asking others to terminate
+                    q_solution.put({"solution" : factors}) 
+                    #Fixing total attemps made
+                    lock.acquire()
+                    next_k0_to_assign = queue.get()["next_k0_to_assign"]
+                    total_attempts = queue.get()["attempts"]
+                    total_attempts = total_attempts - (len(batch) - (batch.index(guess)+1)) #len(batch)-remaining items in batch
+                    queue.put({"next_k0_to_assign" : next_k0_to_assign})
+                    queue.put({"attempts" : total_attempts})
+                    lock.release()
                     exit(0)
-            batch = self.get_batch(lock, queue, n, m, m_inv, generator, mm, tt, XX)
-        print "Process n " + str(proc_id) + " found nothing, exiting now"
+            batch = self.get_batch(lock, queue, n, m, generator, mm, tt, XX)
+        logging.debug('Process n {} found nothing, exiting now'.format(proc_id))
 
     def factorize(self):
         n = self.n
@@ -285,23 +306,25 @@ class Roca:
         mm = self.mm
         tt = self.tt
         generator = self.generator
-        general_prime = False #Should be true for rsalib keys, check this
+        general_prime = True #Should be false for rsalib keys, check this
         #generator is known: p=k * m + (generator^a mod m)
         phi_n = fmpz.euler_phi(fmpz(m)) #Euler totient in FLINT
         decomp_phi_n = phi_n.factor() # list with prime factors & multiplicities
         order = self.generator_order(generator, m, phi_n, decomp_phi_n)
         decomp_order = fmpz(order).factor() 
         d = self.pohlig_hellman(n, generator, order, decomp_order, m)
+        logging.debug('Order of the generator is: {}'.format(order))    
         guess = d // 2
-        print 'guess is : ' + str(guess)
+        logging.debug('Starting guess is: {}'.format(guess))
         self.max_attempts = ((order + 1) // 2 + 1)
-        print 'Max_attemps are: ' + str(self.max_attempts)
-        m_inv = int(self._EuclidExt(m, n))
+        logging.debug('Max attemps are: {}'.format(self.max_attempts))
+        self.m_inv = int(self._EuclidExt(m, n)) 
         length = int(math.ceil(math.log(n, 2)))
         if general_prime:
             # any prime of |n|/2 bits
             XX = int(2**(length / 2)) // m
         else:
+            #used in vulnerable keys found in rsalib, as far as I know, it's a small optimization anyway
             # primes of the form 0b1100...
             XX = int(2**(length / 2 - 1) + 2**(length / 2 - 2) + 2**(length / 2 - 4)) // m
       
@@ -315,21 +338,21 @@ class Roca:
         queue.put({"attempts" : 0})
      
         processes = [mp.Process(target=self.__separate_process, args=(
-        proc_id, lock, stop_event, queue, q_solution, n, m, m_inv, generator, mm, tt, XX)) 
+        proc_id, lock, stop_event, queue, q_solution, n, m, generator, mm, tt, XX)) 
         for proc_id in xrange(1,self.nprocess+1)]
         
         try:
             start = time.time()
-            print("Main Thread starting the processes")
+            logging.info("Main Thread starting the processes")
             for p in processes:
                 p.start()
             for p in processes:
                 p.join()
-            print("All processes terminated.")
+            logging.info("All processes terminated.")
             end = time.time()
-            print "Real time of execution: " + str(end-start)
+            logging.debug("Real time of execution: {}".format(end-start)) 
         except KeyboardInterrupt:
-            print("Caught KeyboardInterrupt, asking processes to terminate")
+            print("Caught KeyboardInterrupt, terminating processes")
             for p in processes:
                 p.terminate()
             exit(0)
@@ -337,7 +360,7 @@ class Roca:
         total_attempts = queue.get()["attempts"]
         print "Total attempts are: " + str(total_attempts)
         print "Attempts per second: " + str(int(total_attempts / (end-start))) 
-        #Old stuff but important for the writeup, shit doesn't work correctly
+        #Old stuff but important for the writeup, this doesn't work correctly
         #results = [pool.apply(try_guess, args=(n, m, k0_guess_list[w], k0_guess_times_list[w], mm, tt, XX)) for w in xrange(0,n_process)]
         #results = [p.get() for p in results]   
         if not q_solution.empty():
