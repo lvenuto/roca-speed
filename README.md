@@ -2,6 +2,72 @@
 Fast, multiprocess implementation in Python of the RoCa vulnerability of RSA keys
 
 ## Installation instructions
+### Ubuntu 18.04
+
+Install Python 2.7 and pip
+```
+sudo apt-get install python-minimal && sudo apt-get install python-pip
+```
+
+We need Cython because it's a requirement for python-flint, grab it with pip
+```
+sudo pip install Cython
+```
+
+[libgmp](https://gmplib.org/) should be already installed in Ubuntu 16.04, but if it isn't:
+
+```
+sudo apt-get install libgmp-dev
+```
+
+We also need the multiprecision library for floats [mpfr](https://www.mpfr.org/), it's a requirement for FLINT C. It should be already installed in ubuntu 18.04, but not in ubuntu 16.04
+```
+sudo apt-get install libmpfr6
+```
+
+This script uses the [FLINT C library](http://www.flintlib.org/) to factor polynomials, it's way faster and easier to use than Sympy, it's in the ubuntu repo:
+```
+sudo apt-get install libflint-dev
+```
+
+We also need [arb](https://github.com/fredrik-johansson) because it's a requirement for python-flint (TODO: remove this dependancy PLEASE, arb is not needed for our stuff..)
+Additionally the version in the repository is too old, and we need to compile from source, ARGH!
+```
+wget https://github.com/fredrik-johansson/arb/archive/2.16.0.tar.gz
+tar -xvf 2.16.0.tar.gz
+cd arb-2.16.0/
+./configure
+make
+sudo make install
+```
+
+We need numpy because the python-flint installer uses it..crazy! TODO: remove this stupid dependancy PLEASE
+```
+sudo pip install numpy
+```
+
+Now install python-flint
+```
+sudo pip install python-flint
+```
+
+Now we need to install fplll(fastest lll implementation)
+```
+sudo apt-get install libfplll-dev
+```
+
+Now we install the python wrapper for lll, from the package manager and not pip, because the version in the pip repo has some [issues](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=905434)
+```
+sudo apt-get install python-fpylll
+```
+
+And finally clone this repo and run some tests:
+```
+git clone https://github.com/lvenuto/roca-speed
+cd roca-speed
+python2 test.py
+```
+
 ### Mac os X
 
 The easiest way to install the requirements is through [Brew](https://brew.sh/)
@@ -87,12 +153,4 @@ cd /usr/local/include
 ln -s pruner/pruner.h pruner.h
 ```
 
-And finally clone this repo and run some tests:
-```
-git clone https://github.com/lvenuto/roca-speed
-cd roca-speed
-python2 test.py
-```
-
-### Linux
 
