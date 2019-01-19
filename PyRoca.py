@@ -19,6 +19,7 @@ class PyRoca:
     mm_tt = { 
               1024: (5, 6),
               512: (5, 6),
+              513: (5, 6),
               128: (2, 3), 
               64 : (3, 4) 
     }
@@ -29,17 +30,16 @@ class PyRoca:
                 1024 : 0x2156fdb48f0144b373d10c63b13c5090fabd96696724cbc8aee5e43dc10e6a43b960a3eL,
                 #1024: 0x24683144f41188c2b1d6a217f81f12888e4e6513c43f3f60e72af8bd9728807483425d1eL,
                 512 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,
+                513 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,
                 128 : 0x6bfc675e31a, #43 bits primorial(12)
                 64 : 0x7ca2e  #19 bits primorial(7)
+                
     }
 
-    def __init__(self, n, m=None, mm=None, tt=None, generator=None, k0_guess=None, nprocess=None, batch_size=None, debug=False):
-        if debug:
-            logging.basicConfig(format='%(levelname)s: PyRoca %(message)s',level=logging.DEBUG)
-        else:
-            logging.basicConfig(level=logging.WARNING)   
-          
-        keylen = (int(math.log(n, 256)) + 1)*8
+    def __init__(self, n, m=None, mm=None, tt=None, generator=None, k0_guess=None, nprocess=None, batch_size=None):
+       
+        #keylen = (int(math.log(n, 256)) + 1)*8
+        keylen = n.bit_length()
         logging.debug('keylen is {}'.format(keylen))
         if n is None:
           raise ValueError('n must be specified.')
@@ -102,7 +102,8 @@ class PyRoca:
 
     #Computes the multiplicative inverse c mod d
     '''https://secgroup.dais.unive.it/teaching/cryptography/the-rsa-cipher/'''
-    def _EuclidExt(self, c, d):
+    @staticmethod
+    def EuclidExt(c, d):
         d0 = d
         e = 1
         f = 0
@@ -126,7 +127,7 @@ class PyRoca:
      
         for n_i, a_i in zip(n, a):
             p = prod / n_i
-            sum += a_i * self._EuclidExt(p, n_i) * p
+            sum += a_i * self.EuclidExt(p, n_i) * p
         return sum % prod
         
     '''Coppersmith_howgrave implementation using FLINT polynomials, because Sympy polynomials are 100 times slower
@@ -134,8 +135,8 @@ class PyRoca:
        For the Sage implementation goto: https://github.com/mimoo/RSA-and-LLL-attacks
        But it's 40% slower partly because of LLL implementation in Sage, partly because the factorization here is faster (why?)
     '''
-
-    def coppersmith_howgrave_univariate(self, expr, n, mm, tt, XX):
+    @staticmethod
+    def coppersmith_howgrave_univariate(expr, n, mm, tt, XX):
 
         dd = expr.degree()
         nn = dd * mm + tt
@@ -306,9 +307,9 @@ class PyRoca:
         mm = self.mm
         tt = self.tt
         generator = self.generator
-        general_prime = True #Should be false for rsalib keys, check this
+        general_prime = True #Should be false to optimize for rsalib keys, check this
         #generator is known: p=k * m + (generator^a mod m)
-        phi_n = fmpz.euler_phi(fmpz(m)) #Euler totient in FLINT
+        phi_n = euler_phi(fmpz(m)) #Euler totient in FLINT
         decomp_phi_n = phi_n.factor() # list with prime factors & multiplicities
         order = self.generator_order(generator, m, phi_n, decomp_phi_n)
         decomp_order = fmpz(order).factor() 
@@ -318,7 +319,7 @@ class PyRoca:
         logging.debug('Starting guess is: {}'.format(guess))
         self.max_attempts = ((order + 1) // 2 + 1)
         logging.debug('Max attemps are: {}'.format(self.max_attempts))
-        self.m_inv = int(self._EuclidExt(m, n)) 
+        self.m_inv = int(self.EuclidExt(m, n)) 
         length = int(math.ceil(math.log(n, 2)))
         if general_prime:
             # any prime of |n|/2 bits
@@ -334,7 +335,7 @@ class PyRoca:
         self.stop_event = stop_event
         queue = mp.Queue()
         q_solution = mp.Queue()
-        queue.put({"next_k0_to_assign" : k0_guess})
+        queue.put({"next_k0_to_assign" : k0_guess}) 
         queue.put({"attempts" : 0})
      
         processes = [mp.Process(target=self.__separate_process, args=(
