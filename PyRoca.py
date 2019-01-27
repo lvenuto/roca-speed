@@ -17,63 +17,66 @@ class PyRoca:
 
     '''default mm and tt values depending on keylen'''
     mm_tt = { 
-              1024: (5, 6),
+              1024: (4, 5),
               512: (5, 6),
-              513: (5, 6),
-              128: (2, 3), 
-              64 : (3, 4) 
     }
 
     '''default M values depending on keylen'''
 
     m_prime = { 
-                1024 : 0x2156fdb48f0144b373d10c63b13c5090fabd96696724cbc8aee5e43dc10e6a43b960a3eL,
-                #1024: 0x24683144f41188c2b1d6a217f81f12888e4e6513c43f3f60e72af8bd9728807483425d1eL,
-                512 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,
-                513 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,
-                128 : 0x6bfc675e31a, #43 bits primorial(12)
-                64 : 0x7ca2e  #19 bits primorial(7)
-                
+                1024 : 0x24683144f41188c2b1d6a217f81f12888e4e6513c43f3f60e72af8bd9728807483425d1eL,
+                512 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,            
     }
 
-    def __init__(self, n, m=None, mm=None, tt=None, generator=None, k0_guess=None, nprocess=None, batch_size=None):
+    def __init__(self, n, m=None, mm=None, tt=None, generator=None, general_prime=True, guess=None, nprocess=None, batch_size=None):
        
         #keylen = (int(math.log(n, 256)) + 1)*8
         keylen = n.bit_length()
         logging.debug('keylen is {}'.format(keylen))
         if n is None:
-          raise ValueError('n must be specified.')
+            raise ValueError('n must be specified.')
         else:
-          self.n=n #modulus of the public key
+            self.n=n #modulus of the public key
         if m is None: #if no m is specified, try using default values
-          if keylen in self.m_prime:
-              self.m = self.m_prime[keylen]
-          else:
-              raise ValueError('m not specified and keylen of {} bit is not in the default values'.format(keylen))
+            if keylen in self.m_prime:
+                self.m = self.m_prime[keylen]
+            else:
+                raise ValueError('m not specified and keylen of {} bit is not in the default values'.format(keylen))
         else:
-          self.m = m
+            self.m = m
         if generator is None: #for Roca the generator is 65537, but if it's not roca, you can specify it
-          self.generator = 65537
+            self.generator = 65537
         else:
-          self.generator=generator    
-        if mm is None: #default mm_tt are precomputed, but if you have a weird keylen, and you computed a different m, you can specify it
-          if keylen in self.mm_tt:
-              self.mm = self.mm_tt[keylen][0]
-          else:
-              raise ValueError('mm not specified and default mm to use for keylen of {} bit is not in the default values'.format(keylen))              
+            self.generator=generator    
+        if mm is None: #some default mm_tt are precomputed, but if you have a weird keylen, and you computed a different m, you can specify it
+            if keylen in self.mm_tt:
+                self.mm = self.mm_tt[keylen][0]
+            else:
+                raise ValueError('mm not specified and default mm to use for keylen of {} bit is not in the default values'.format(keylen))   
+        else:
+            self.mm=mm           
         if tt is None:
-          if keylen in self.mm_tt:
-              self.tt = self.mm_tt[keylen][1]
-          else:
-              raise ValueError('mm not specified and default tt to use for keylen of {} bit is not in the default values'.format(keylen))     
-        if k0_guess is not None: #starting guess, used if you want to specify a starting point, usually for finding best m
-          self.k0_guess = k0_guess
+            if keylen in self.mm_tt:
+                self.tt = self.mm_tt[keylen][1]
+            else:
+                raise ValueError('mm not specified and default tt to use for keylen of {} bit is not in the default values'.format(keylen)) 
+        else:
+            self.tt=tt    
+        
+        if general_prime: #determines the size of XX, check the factorize function for more info
+            self.general_prime = True 
+        else: self.general_prime = False
+        
+        if guess is not None: #starting guess, used if you want to specify a starting point, usually for finding best m
+            self.guess = guess
+        else: self.guess = None
+        
         if nprocess is None: #you can specify the number of threads to use, if you want to not stress the cpu choose nprocess < n of cores 
-          try:
-              self.nprocess = mp.cpu_count() 
-          except NotImplementedError:
-              logging.warning('Cant get cpu_count, using the default of 1 process.')
-              self.nprocess = 1
+            try:
+                self.nprocess = mp.cpu_count() 
+            except NotImplementedError:
+                logging.warning('Cant get cpu_count, using the default of 1 process.')
+                self.nprocess = 1
         else:
             self.nprocess = nprocess
         #batch size can be optimized to increase performance, usually depends on the time taken by coppersmith alg
@@ -82,9 +85,24 @@ class PyRoca:
             self.batch_size = 100
         else:
             self.batch_size = batch_size
-       
     
-              
+    @property
+    def n(self):
+        return self.n
+             
+    @n.setter
+    def keylen(self, n):
+        self.n = n
+        self.keylen = n.bit_length()
+        
+    @property
+    def keylen(self):
+        return self.keylen
+         
+    @keylen.setter
+    def keylen(self, keylen):
+        self.keylen = keylen
+             
     '''Faster implementation of EuclidExt algorithm?
     Used in the Rosetta Code example'''
     '''
@@ -99,11 +117,11 @@ class PyRoca:
         if x1 < 0: x1 += b0
         return x1
     '''
-
-    #Computes the multiplicative inverse c mod d
-    '''https://secgroup.dais.unive.it/teaching/cryptography/the-rsa-cipher/'''
-    @staticmethod
-    def EuclidExt(c, d):
+  
+    @classmethod
+    def EuclidExt(cls, c, d):
+    # Computes the multiplicative inverse c mod d
+    # reference: https://secgroup.dais.unive.it/teaching/cryptography/the-rsa-cipher/   
         d0 = d
         e = 1
         f = 0
@@ -117,30 +135,28 @@ class PyRoca:
             f = tmp
         if c == 1:
 	        return e % d0	# if gcd is 1 we have that e is the inverse
-
-    '''Implementation from https://rosettacode.org/wiki/Chinese_remainder_theorem#Python
-    To be possibly replaced by the FLINT implementation, not much speed to gain though'''
-
-    def _chinese_remainder(self, n, a):
+    
+    @classmethod
+    def chinese_remainder(cls, n, a):
+    # Implementation from https://rosettacode.org/wiki/Chinese_remainder_theorem#Python
+    # To be possibly replaced in the future by the FLINT implementation, not much speed to gain though
         sum = 0
         prod = reduce(lambda a, b: a*b, n)
      
         for n_i, a_i in zip(n, a):
             p = prod / n_i
-            sum += a_i * self.EuclidExt(p, n_i) * p
+            sum += a_i * cls.EuclidExt(p, n_i) * p
         return sum % prod
         
-    '''Coppersmith_howgrave implementation using FLINT polynomials, because Sympy polynomials are 100 times slower
-       Doesn't work if you work with negative numbers at the moment, the polynomials are not in mod n
-       For the Sage implementation goto: https://github.com/mimoo/RSA-and-LLL-attacks
-       But it's 40% slower partly because of LLL implementation in Sage, partly because the factorization here is faster (why?)
-    '''
     @staticmethod
     def coppersmith_howgrave_univariate(expr, n, mm, tt, XX):
-
+    # Coppersmith_howgrave implementation using FLINT polynomials, because Sympy polynomials are more than an order of magnitude slower
+    # Doesn't work if you work with negative numbers at the moment, the polynomials are not modulo n
+    # For the Sage implementation the reference is: https://github.com/mimoo/RSA-and-LLL-attacks
+    # But it's 20% slower partly because of LLL implementation in Sage, partly because the factorization with FLINT in Python is faster
         dd = expr.degree()
         nn = dd * mm + tt
-             
+
         # compute polynomials
         gg = []
         for ii in range(mm):
@@ -154,6 +170,7 @@ class PyRoca:
         for ii in range(nn):
             for jj in range(ii+1):
                 BB[ii, jj] = int(gg[ii][jj])
+        
         # LLL
         W=LLL.Wrapper(BB,delta=0.5)
         W()
@@ -165,7 +182,6 @@ class PyRoca:
             new_pol += (fmpz_poly([0,1]))**ii * fmpz(BB[0, ii] / XX**ii)
 
         roots = []
-        
         factorization = new_pol.factor()
         
         for elem in factorization:
@@ -175,18 +191,15 @@ class PyRoca:
             if isinstance(elem,list):
                 for elem2 in elem:
                     if(elem2[0].degree() == 1):
-                        roots.append((-elem2[0][0]))               
+                        roots.append((-elem2[0][0]))    
+                  
         return roots 
         
     def try_guess(self, n, m, k0_guess, mm, tt, XX):
-        
-        start = time.time()
-        #k0_g_inv_mod = k0_guess_times_m_inv%n
+    # Given a guess and parameters m,mm,tt,XX run coppersmith attack
         k0_g_inv_mod = (k0_guess * self.m_inv) % n
         expr = fmpz_poly([k0_g_inv_mod,1])
         roots = self.coppersmith_howgrave_univariate(expr, n, mm, tt, XX)
-        end = time.time()
-        exec_time = end-start #time to solve the lattice (including poly creation time)
         for root in roots:
             factor1 = k0_guess + abs(root) * m
             if (n % factor1) == 0: #found our prime p
@@ -195,8 +208,8 @@ class PyRoca:
                 return [int(factor1), int(factor2)]
         return None
         
-    '''TODO: Correct typing for use with FLINT library'''
     def generator_order(self, generator, m, phi_n, decomp_phi_n):
+    # TODO: Correct typing for use with FLINT library
         order = int(phi_n)
         if generator == 1:
             return 1 # by definition
@@ -210,9 +223,10 @@ class PyRoca:
                 else:
                     break 
         return order
-
-    #Pohlig hellman algorithm for an effecient computation of the discrete logarithm
-    def pohlig_hellman(self, modulus, generator, generator_order, generator_order_decomposition, m):
+    
+    @staticmethod
+    def pohlig_hellman(modulus, generator, generator_order, generator_order_decomposition, m):
+    # Pohlig hellman algorithm for an effecient computation of the discrete logarithm
         
         if pow(modulus, generator_order, m) != 1:
             return None
@@ -234,17 +248,16 @@ class PyRoca:
                     break
             if not found:
                 return None
-        result = self._chinese_remainder(moduli,remainders)
+        result = PyRoca.chinese_remainder(moduli,remainders)
         return result
 
-    '''This function is primarily used for the processes spawned by this class
-    they get a batch of n elements, and perform operations. A multiprocessing
-    queue is used to share data between them.
-
-    TODO: do a checkpoint to resume (E.g. for amazon EC2 spot instance resume)
-    and put the max_attempts in the queue, so we know how many have been done
-    '''
     def get_batch(self, lock, queue, n, m, generator, mm, tt, XX):
+    # This function is primarily used for the processes spawned by this class
+    # they get a batch of n elements, and perform operations. A multiprocessing
+    # queue is used to share data between them.
+    # TODO: do a checkpoint to resume (E.g. for amazon EC2 spot instance resume)
+    # and put the max_attempts in the queue, so we know how many have been done
+    
         batch = []
         lock.acquire()
         next_k0_to_assign = queue.get()["next_k0_to_assign"]
@@ -271,6 +284,7 @@ class PyRoca:
         return batch
        
     def __separate_process(self, proc_id, lock, stop_event, queue, q_solution, n, m, generator, mm, tt, XX):
+    # Every process will run this function until finished or asked to terminate
         batch = self.get_batch(lock, queue, n, m, generator, mm, tt, XX)
         while batch: #while there is work to do
             for guess in batch:
@@ -307,7 +321,6 @@ class PyRoca:
         mm = self.mm
         tt = self.tt
         generator = self.generator
-        general_prime = True #Should be false to optimize for rsalib keys, check this
         #generator is known: p=k * m + (generator^a mod m)
         phi_n = euler_phi(fmpz(m)) #Euler totient in FLINT
         decomp_phi_n = phi_n.factor() # list with prime factors & multiplicities
@@ -315,13 +328,16 @@ class PyRoca:
         decomp_order = fmpz(order).factor() 
         d = self.pohlig_hellman(n, generator, order, decomp_order, m)
         logging.debug('Order of the generator is: {}'.format(order))    
-        guess = d // 2
+        if self.guess:
+            guess = self.guess #if we have specified a starting guess, useful for resuming
+        else:
+            guess = d // 2
         logging.debug('Starting guess is: {}'.format(guess))
         self.max_attempts = ((order + 1) // 2 + 1)
         logging.debug('Max attemps are: {}'.format(self.max_attempts))
         self.m_inv = int(self.EuclidExt(m, n)) 
         length = int(math.ceil(math.log(n, 2)))
-        if general_prime:
+        if self.general_prime:
             # any prime of |n|/2 bits
             XX = int(2**(length / 2)) // m
         else:

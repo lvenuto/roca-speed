@@ -8,22 +8,27 @@ from random import randint
 import time
 import logging
 import operator
-import multiprocessing as mp
 
 class ParameterFinder:
-        def __init__(self, keylen=None, n=None, generator=None):
+        def __init__(self, keylen=None, n=None, generator=None, general_prime = True):
             if keylen is None:
                 if n is not None:
                     #keylen = (int(math.log(n, 256)) + 1)*8
-                    keylen = n.bit_length()
+                    self.keylen = n.bit_length()
+                    self.n = n
                 else:
                     raise ValueError('Please specify keylen or n')
             else:
                 self.keylen = keylen
+                self.n = None
+                
             if generator is None:
-                logging.info('Generator not specified, using the default of 65537')
+                logging.debug('Generator not specified, using the default of 65537')
                 self.generator = 65537 #default generator for RoCa vulnerable keys
-            self.primelist = list(self._rwh_primes(2000))
+            
+            if general_prime: #determines the size of XX
+                self.general_prime = True 
+            else: self.general_prime = False
             
             # Attributes necessary during the calculation of the best possible m_prime,
             # They are created by the greedy heuristic procedure, and later used in the
@@ -32,7 +37,36 @@ class ParameterFinder:
             # the prime numbers which are picked by the greedy heuristic.
             self.reward_cost = None
             self.goback = None 
-                     
+        
+        def is_roca(self):
+            #check if the specified n is roca vulnerable
+            if not self.n:
+                raise ValueError('Please specify an n..') 
+            full_m = self.calculate_full_m(self.keylen)
+            order = self.multOrder(self.generator, full_m, fmpz(full_m).factor())
+            decomp_order = fmpz(order).factor() 
+            d = PyRoca.pohlig_hellman(self.n, self.generator, order, decomp_order, full_m)
+            if d == None:
+                return False
+            return True
+        
+        @property
+        def n(self):
+            return self.n
+             
+        @n.setter
+        def keylen(self, n):
+            self.n = n
+            self.keylen = n.bit_length()
+            
+        @property
+        def keylen(self):
+            return self.keylen
+             
+        @keylen.setter
+        def keylen(self, keylen):
+            self.keylen = keylen
+                
         def _rwh_primes(self, n_primes):
             # https://stackoverflow.com/questions/2068372/fastest-way-to-list-all-primes-below-n-in-python/3035188#3035188
             # Returns  a list of primes < n_primes 
@@ -44,7 +78,9 @@ class ParameterFinder:
             return [2] + [i for i in xrange(3,n,2) if sieve[i]]
 
         def primorial(self, n):
-            #The product of the first n primes
+            # The product of the first n primes
+            if not hasattr(self, 'primelist'):
+                self.primelist = list(self._rwh_primes(2000))
             return reduce(operator.mul, self.primelist[:n], 1)
         
         def _gcd(self, a, b):
@@ -132,7 +168,6 @@ class ParameterFinder:
                 
             reward_cost.sort(reverse=True) #order so the best one is always in the head of the list
             return reward_cost
-
 
         #ex. [(83, 1), (53, 1), (41, 1), (37, 1), (29, 1), (23, 1), (17, 1), (13, 1), (11, 1), (7, 1), (5, 2), (3, 4), (2, 4)]
         def get_div_ord_m(self, full_m, generator, mfactored):
@@ -224,11 +259,14 @@ class ParameterFinder:
             self.goback = goback
             return result, full_m #note full_m is now greedym, TODO: fix variable names
    
-        def calculate_XX(self,m):
+        def calculate_XX(self, m):
             length = self.keylen
-            XX = int(2**(length / 2)) // m #assuming general prime
+            if self.general_prime:
+                XX = int(2**(length / 2)) // m 
+            else:
+                XX = int(2**(length / 2 - 1) + 2**(length / 2 - 2) + 2**(length / 2 - 4)) // m 
             return XX
-    
+        
         def calculate_k0guess(self, m, p, q):
             # From an m and the primes p and q we can calculate the k0guesses 
             # that are required to find those primes. Remember that one of them will
@@ -241,12 +279,15 @@ class ParameterFinder:
             k0_guess2 = q-coppersmith_root2*m
             return k0_guess1, k0_guess2
     
-        def calculate_guess(self, k0_guess, m, order, decomp_order):
+        def calculate_guess(self, k0_guess, order, decomp_order, m):
             # Get the guess used to calculate that k0guess, could be useful 
-            # for debugging purposes
-            return pohlig_hellman(k0guess, 65537, order, decomp_order, m)
+            # for debugging purposes, if k0_guess = n, we calculate the 
+            # starting guess used by PyRoca
+            #order = self.multOrder(self.generator, m, fmpz(m).factor())
+            #decomp_order = fmpz(order).factor()   
+            return PyRoca.pohlig_hellman(k0_guess, self.generator, order, decomp_order, m)
         
-        def test_mm_tt(self, m, mm, tt, times):
+        def test_mm_tt(self, m, mm, tt, times=1):
             # You know mm and tt, thanks to brute_mm_tt, but you are not sure
             # that they work 100% of the times. Test them here
             # Watch out that exec_time refers to the time it takes to make a correct guess,
@@ -268,7 +309,8 @@ class ParameterFinder:
                      #if the parameters are good we should find p
                     for root in result:
                         test_p = k0_guess1 + abs(root)*m
-                        if not p==test_p:
+                        test_q = k0_guess2 + abs(root)*m
+                        if (not p==test_p) and (not p==test_q) and not q==test_p and not q==test_q:
                             logging.info('Testing of the parameters failed, prime p is different')
                             return False, None
                 else:
@@ -278,7 +320,7 @@ class ParameterFinder:
             meantime = sum(time_list) / len(time_list)
             return True, meantime
               
-        def brute_mm_tt(self, n, m, p, q, times=0):
+        def brute_mm_tt(self, n, m, p, q, times=0, max_mm=40):
             # brute forcing parameters mm,tt
             # As I said before It doesn't matter if you use p or q here, don't bother to
             # find if a guess is !before the initial guess (AKA you will never find it
@@ -286,7 +328,7 @@ class ParameterFinder:
 
             tt=0     
             #Check only mm,tt maximum 8,9 
-            for mm in xrange(1,25):
+            for mm in xrange(1,max_mm):
                 tt=mm+1
                 success, meantime = self.test_mm_tt(m, mm, tt, 1) 
                 if success:
@@ -302,7 +344,7 @@ class ParameterFinder:
                         logging.debug('Consider checking mm = {}, tt = {} again, although they work in this execution they are not guaranteed to work always!'.format(mm,tt))
                         return mm,tt,meantime
                 
-            logging.info('Really couldnt find any mm, tt!')
+            logging.debug('Really couldnt find any mm, tt!')
             return None,None,meantime 
         
         def binary_search_mm_tt(self, m, times=5, max_mm=40):
@@ -354,6 +396,7 @@ class ParameterFinder:
             # the format of the primes p and q in binary in RSAlib always begins in 0b11XX.. 
             # in this implementation, we generate primes between 0b1100.. to 0b1101..
             # many rsa libraries want primes in the form 0b11.., to ensure the p,q are always of the required size
+            
             if keylen < 512 and self.keylen < 512:
                 print 'Cannot generate a key smaller than 512 bit, there are no real RoCa keys with that size!'\
                       'if you want you could pass the full_m if you know it uses that specific m'\
@@ -367,7 +410,7 @@ class ParameterFinder:
             order = self.multOrder(self.generator, full_m, fmpz(full_m).factor())
               
             min_k = 1 << keylen // 2 - 1 | 1 << keylen // 2 - 2  #set msb and msb-1 to 1, the rest is 0
-            max_k = min_k | 1 << keylen // 2 - 3 #max k in bin is 0b111000..0XXX.. keylen cannot exceed keylen size (remember that we have to multiply full_m and sum pow)
+            max_k = min_k | 1 << keylen // 2 - 4 #max k in bin is 0b111000..0XXX.. keylen cannot exceed keylen size (remember that we have to multiply full_m and sum pow)
                    
             min_k = min_k // full_m
             max_k = max_k // full_m
@@ -399,6 +442,8 @@ class ParameterFinder:
             logging.debug('q prime generation time is {}'.format(end-start))
             logging.debug('q size in bits is {}'.format(log(q,2)))
             n=p*q
+            logging.debug('Key generated is: ')
+            logging.debug('Prime p = {}, Prime q = {}, Modulus = {}'.format(p,q,n))
             return n,p,q
                     
         def calculate_m_prime(self, steps=2, times_to_test=5, max_mm = 20, advanced_brute=False):
@@ -535,7 +580,4 @@ class ParameterFinder:
             
             time_and_m.sort()
             return time_and_m, parameters
-                
-            
-  
-                    
+                                
