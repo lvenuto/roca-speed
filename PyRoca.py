@@ -25,7 +25,7 @@ class PyRoca:
 
     m_prime = { 
                 1024 : 0x24683144f41188c2b1d6a217f81f12888e4e6513c43f3f60e72af8bd9728807483425d1eL,
-                512 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea,            
+                512 : 0x1b3e6c9433a7735fa5fc479ffe4027e13bea 
     }
 
     def __init__(self, n, m=None, mm=None, tt=None, generator=None, general_prime=True, guess=None, nprocess=None, batch_size=None):
