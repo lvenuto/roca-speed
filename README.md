@@ -30,7 +30,7 @@ This script uses the [FLINT C library](http://www.flintlib.org/) to factor polyn
 sudo apt-get install libflint-dev
 ```
 
-We also need [arb](https://github.com/fredrik-johansson) because it's a requirement for python-flint (TODO: remove this dependancy PLEASE, arb is not needed for our stuff..)
+We also need [arb](https://github.com/fredrik-johansson) because it's a requirement for python-flint (TODO: remove this dependancy, arb is not needed for our stuff..)
 Additionally the version in the repository is too old, and we need to compile from source, ARGH!
 ```
 wget https://github.com/fredrik-johansson/arb/archive/2.16.0.tar.gz
@@ -41,7 +41,7 @@ make
 sudo make install
 ```
 
-We need numpy because the python-flint installer uses it..crazy! TODO: remove this stupid dependancy PLEASE
+We need numpy because the python-flint installer uses it... TODO: remove this dependency
 ```
 sudo pip install numpy
 ```
@@ -59,6 +59,12 @@ sudo apt-get install libfplll-dev
 Now we install the python wrapper for lll, from the package manager and not pip, because the version in the pip repo has some [issues](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=905434)
 ```
 sudo apt-get install python-fpylll
+```
+
+Install gmpy2 (used to test primality) and the library associated with it:
+```
+sudo apt-get install libmpc-dev
+sudo pip install gmpy2
 ```
 
 And finally clone this repo and run some tests:
